@@ -5,8 +5,9 @@
 % Rodolfo Cantu Ortiz A01036042
 %
 % --------------------------------------------------------------- Meta
--module(asistencia).
--export([inicia_servidor/0, servidor/0]).
+-module(tarea6).
+-export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, 
+	registra_asistente/2, asistente/3]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
 %% nodo servidor (para ver tu nombre corre en UNIX con el comando
@@ -14,7 +15,7 @@
 %% usar. Acontinuacion, el nombre estara antes del numero de linea
 %% a ejecutar.
 nodo_servidor() ->
-  super@debian.
+  servidor@G55.
 
 %% el proceso que corre de administracion
 %% las listas tienen el formato de:
@@ -31,16 +32,48 @@ nodo_servidor() ->
 %%                  asistentes => [A1, A2, A3, ...]}...]
 servidor() ->
   process_flag(trap_exit, true), % el hijo manda se reinicia si se cae
-  servidor(maps:new(), maps:new()). % llama al servidor con 2 mapas vacios
+  servidor([], []). % llama al servidor con 2 listas vacias
 
-servidor(Asistentes, Conferencias) ->
+servidor(L_Asistentes, L_Conferencias) ->
   receive
- %TODO agrega las funciones por las que va a escuchar nuestro servidor
+
+ 	{From, registra_c, Conferencia, Titulo, Conferencista, Horario, Cupo} -> % agregar una nueva conferencia
+ 		Nueva_Conferencias = server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias),
+ 		servidor(L_Asistentes, Nueva_Conferencias);
+
+ 	{From, registra_a, Asistente, Nombre} -> % agregar un nuevo asistente
+ 		Nueva_Asistentes = server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes),
+ 		servidor(Nueva_Asistentes, L_Conferencias)
+
   end.
+
+server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
+	% checar si el usuario ya existe
+	case lists:keymember(Nombre, 2, L_Asistentes) of
+		true ->
+			From ! {messenger, stop, error_asistente_ya_registrado}, % negar registro
+			L_Asistentes;
+		false ->
+			From ! {messenger, asistente_registrado},
+			link(From),
+			[{Asistente, Nombre} | L_Asistentes] %add user to the list
+	end.
+
+% se agrega una nueva conferencia TODO checar que no sean repetidos
+server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias) ->
+	Map = #{"conferencia" => Conferencia, "titulo" => Titulo, "conferencista" => Conferencista,
+			"horario" => Horario, "cupo" => Cupo},
+	link(From),
+	[Map | L_Conferencias],
+	From ! {tarea6, conferencia_agregada}.
+
+% solo para hacer pruebas TODO borrar esto
+test(From, Titulo) ->
+	From ! {tarea6, works}.
 
 %% Empieza el servidor
 inicia_servidor() ->
-	register(asistencia, spawn(asistencia, servidor, [])).
+	register(tarea6, spawn(tarea6, servidor, [])).
 % --------------------------------------------------------------- Asistente
 
 % NOTAS IMPORTANTES:
@@ -52,6 +85,19 @@ inicia_servidor() ->
 %registra_asistente(Asistente, Nombre)
 %	Asistente -> atomo usado como clave unica
 %	Nombre -> String con nombre del asistente
+
+% inciar el proceso de agregar un asistente
+registra_asistente(Asistente, Nombre) ->
+	case whereis(Asistente) of
+		undefined ->
+			register(Asistente,
+				spawn(tarea6, asistente, [nodo_servidor(), Asistente, Nombre]));
+		_ -> error_asistente_ya_registrado_atomo
+	end.
+
+asistente(Server_Node, Asistente, Nombre) ->
+	{tarea6, Server_Node} ! {self(), registra_a, Asistente, Nombre},
+	await_result().
 
 %elimina_asistente(Asistente)
 %	eliminar todas las inscripciones a conferencias de Asistente
@@ -80,6 +126,29 @@ inicia_servidor() ->
 %	Horario -> Entero con la hora en el rango [8,20]
 %	Cupo -> Entero positivo
 
+registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
+	case whereis(Conferencia) of
+		undefined -> % crear el proceso
+			register(Conferencia,
+				spawn(tarea6, conferencia, [nodo_servidor(), Conferencia, Titulo, Conferencista, Horario, Cupo]));
+		_ -> error_conferencia_ya_registrada_atomo
+	end.
+
+% iniciando creacion de conferencia
+conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
+	{tarea6, Server_Node} ! {self(), registra_c, 
+		Conferencia, Titulo, Conferencista, Horario, Cupo}, % informar al server
+	await_result().	
+% 	conferencia(Server_Node, []).
+
+% % proceso que realiza una conferencia una vez que esta linkeada y lista
+% conferencia(Server_Node, Lista_De_Asistentes) ->
+% 	receive
+% 		% TODO THIS
+% 	end,
+% 	conferencia(Server_Node, Lista_De_Asistentes).
+	
+
 %elimina_conferencia(Conferencia)
 %	Eliminar todas las inscripciones, borrarla de la info de los asistentes
 
@@ -101,3 +170,16 @@ inicia_servidor() ->
 
 % lista_conferencias()
 %	Muestra a todas las conferencias registradas
+
+% funcion que espera respuesta del servidor
+await_result() ->
+	receive
+		{tarea6, stop, Why} -> % Stop the client
+			io:format("~p~n", [Why]),
+			exit(normal);
+		{tarea6, What} -> % Normal response
+			io:format("~p~n", [What])
+	after 5000 ->
+		io:format("No response from server~n", []),
+		exit(timeout)
+	end.
