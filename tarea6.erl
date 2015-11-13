@@ -42,38 +42,50 @@ servidor(L_Asistentes, L_Conferencias) ->
  		servidor(L_Asistentes, Nueva_Conferencias);
 
  	{From, registra_a, Asistente, Nombre} -> % agregar un nuevo asistente
+ 		io:format("estoy aqui ~n", []),
  		Nueva_Asistentes = server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes),
  		servidor(Nueva_Asistentes, L_Conferencias)
 
+ 	% {From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
+ 	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
+ 	% 	io:format("las conferencias son: ~p~n", [Resultado])
+
   end.
 
+
+% se imprime la lista de conferencias de un asistente
+%server_conferenciasDe(From, Asistente, L_Asistentes) ->
+	%foreach 
+	% case maps:find(From, 1, L_Asistentes) of
+	% 	error ->
+	% 		From ! {tarea6, stop, asistente_no_registrado};
+	% 	{value, {_, Name}} ->
+	% 		server_transfer(From, Name, To, Message, User_List)
+	% end.
+
+
+
+% se agrega un nuevo asistente a la lista del server
 server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
-	% checar si el usuario ya existe
-	case lists:keymember(Nombre, 2, L_Asistentes) of
-		true ->
-			From ! {messenger, stop, error_asistente_ya_registrado}, % negar registro
-			L_Asistentes;
-		false ->
-			From ! {messenger, asistente_registrado},
-			link(From),
-			[{Asistente, Nombre} | L_Asistentes] %add user to the list
-	end.
+		Map = #{"clave" => Asistente, "nombre" => Nombre, "conferencias" => []},
+		From ! {servidor, asistente_registrado},
+		link(From),
+		io:format("Lista actual: ~p~n", [[Map | L_Asistentes]]),
+		[Map | L_Asistentes]. %add user to the list
 
 % se agrega una nueva conferencia TODO checar que no sean repetidos
 server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias) ->
 	Map = #{"conferencia" => Conferencia, "titulo" => Titulo, "conferencista" => Conferencista,
-			"horario" => Horario, "cupo" => Cupo},
+			"horario" => Horario, "cupo" => Cupo, "asistentes" => []},
+	From ! {servidor, conferencia_agregada},
 	link(From),
-	[Map | L_Conferencias],
-	From ! {tarea6, conferencia_agregada}.
+	io:format("Conferencias actuales: ~p~n", [[Map | L_Conferencias]]),
+	[Map | L_Conferencias].
 
-% solo para hacer pruebas TODO borrar esto
-test(From, Titulo) ->
-	From ! {tarea6, works}.
 
 %% Empieza el servidor
 inicia_servidor() ->
-	register(tarea6, spawn(tarea6, servidor, [])).
+	register(servidor, spawn(tarea6, servidor, [])).
 % --------------------------------------------------------------- Asistente
 
 % NOTAS IMPORTANTES:
@@ -96,8 +108,18 @@ registra_asistente(Asistente, Nombre) ->
 	end.
 
 asistente(Server_Node, Asistente, Nombre) ->
-	{tarea6, Server_Node} ! {self(), registra_a, Asistente, Nombre},
-	await_result().
+	{servidor, Server_Node} ! {self(), registra_a, Asistente, Nombre},
+	await_result(),
+	asistente(Server_Node). % crear el proceso
+
+% proceso del asistente
+asistente(Server_Node) ->
+	receive
+		logoff ->
+			io:format("Termiando proceso..~n", []),
+			exit(normal)
+	end,
+asistente(Server_Node).
 
 %elimina_asistente(Asistente)
 %	eliminar todas las inscripciones a conferencias de Asistente
@@ -112,6 +134,14 @@ asistente(Server_Node, Asistente, Nombre) ->
 
 %conferencias_inscritas(Asistente)
 %	Despliega claves, titulos, horarios, cupos y asistentes inscritos
+
+conferencias_inscritas(Asistente) ->
+	case whereis(Asistente) of
+		undefined ->
+			no_existe_asistente;
+		_ -> 
+			{servidor, nodo_servidor()} ! {conferencias_de, Asistente}
+	end.
 
 % --------------------------------------------------------------- Conferencia
 
@@ -136,17 +166,19 @@ registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 
 % iniciando creacion de conferencia
 conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
-	{tarea6, Server_Node} ! {self(), registra_c, 
+	{servidor, Server_Node} ! {self(), registra_c, 
 		Conferencia, Titulo, Conferencista, Horario, Cupo}, % informar al server
-	await_result().	
-% 	conferencia(Server_Node, []).
+	await_result(),
+	conferencia(Server_Node).
 
 % % proceso que realiza una conferencia una vez que esta linkeada y lista
-% conferencia(Server_Node, Lista_De_Asistentes) ->
-% 	receive
-% 		% TODO THIS
-% 	end,
-% 	conferencia(Server_Node, Lista_De_Asistentes).
+conferencia(Server_Node) ->
+	receive
+		logoff ->
+			io:format("Cerrando conferencia..~n", []),
+			exit(normal)
+	end,
+	conferencia(Server_Node).
 	
 
 %elimina_conferencia(Conferencia)
@@ -174,10 +206,10 @@ conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 % funcion que espera respuesta del servidor
 await_result() ->
 	receive
-		{tarea6, stop, Why} -> % Stop the client
+		{servidor, stop, Why} -> % Stop the client
 			io:format("~p~n", [Why]),
 			exit(normal);
-		{tarea6, What} -> % Normal response
+		{servidor, What} -> % Normal response
 			io:format("~p~n", [What])
 	after 5000 ->
 		io:format("No response from server~n", []),
