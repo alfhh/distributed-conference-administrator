@@ -3,7 +3,44 @@
 % Sergio Cordero Barrera A01191167
 % Luis Juan Sanchez Padilla A01183634
 % Rodolfo Cantu Ortiz A01036042
+%
+% --------------------------------------------------------------- Meta
+-module(asistencia).
+-export([inicia_servidor/0, servidor/0]).
 
+%% cambia la funcion acontinuacion para que refleje el nombre del
+%% nodo servidor (para ver tu nombre corre en UNIX con el comando
+%% 'sudo erl -sname NOMBRE' donde NOMBRE es el nombre que quieres
+%% usar. Acontinuacion, el nombre estara antes del numero de linea
+%% a ejecutar.
+nodo_servidor() ->
+  super@debian.
+
+%% el proceso que corre de administracion
+%% las listas tienen el formato de:
+%%
+%%  asistente: [#{clave => CLAVE,
+%%                nombre => NOMBRE,
+%%                conferencias => [C1, C2, C3, ...]}...]
+%%
+%%  conferencia: [#{conferencia => CONFERENCIA,
+%%                  titulo => TITULO,
+%%                  conferencista => CONFERENCISTA,
+%%                  horario => HORARIO,
+%%                  cupo => CUPO,
+%%                  asistentes => [A1, A2, A3, ...]}...]
+servidor() ->
+  process_flag(trap_exit, true), % el hijo manda se reinicia si se cae
+  servidor(maps:new(), maps:new()). % llama al servidor con 2 mapas vacios
+
+servidor(Asistentes, Conferencias) ->
+  receive
+ %TODO agrega las funciones por las que va a escuchar nuestro servidor
+  end.
+
+%% Empieza el servidor
+inicia_servidor() ->
+	register(asistencia, spawn(asistencia, servidor, [])).
 % --------------------------------------------------------------- Asistente
 
 % NOTAS IMPORTANTES:
