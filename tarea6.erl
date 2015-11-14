@@ -7,7 +7,7 @@
 % --------------------------------------------------------------- Meta
 -module(tarea6).
 -export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, 
-	registra_asistente/2, asistente/3]).
+	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
 %% nodo servidor (para ver tu nombre corre en UNIX con el comando
@@ -44,7 +44,15 @@ servidor(L_Asistentes, L_Conferencias) ->
  	{From, registra_a, Asistente, Nombre} -> % agregar un nuevo asistente
  		io:format("estoy aqui ~n", []),
  		Nueva_Asistentes = server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes),
- 		servidor(Nueva_Asistentes, L_Conferencias)
+ 		servidor(Nueva_Asistentes, L_Conferencias);
+
+ 	{From, lista_c} -> % lista todas las conferencias con los asistentes inscritos
+	    From ! {lista, L_Conferencias},
+	 		servidor(L_Asistentes, L_Conferencias);
+
+ 	{From, lista_a} -> % lista todos los asistentes con las conferencias a las que estan inscritos
+	    From ! {lista, L_Asistentes},
+	 		servidor(L_Asistentes, L_Conferencias)
 
  	% {From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
  	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
@@ -199,10 +207,59 @@ conferencia(Server_Node) ->
 
 % lista_asistentes()
 %	Muestra a todos los asistentes registrados
+%%  asistente: [#{clave => CLAVE,
+%%                nombre => NOMBRE,
+%%                conferencias => [C1, C2, C3, ...]}...]
+print_conferencias_de_asistente([]) ->
+  io:format("  No hay mas conferencias por mostrar~n", []);
+print_conferencias_de_asistente([Conferencia | Resto]) ->
+  io:format("   Conferencia ~p~n", [Conferencia]),
+  print_conferencias_de_asistente(Resto).
+
+print_asistente_temp([Map | Resto]) ->
+  io:format("Informacion de ~p con clave ~p:~n",
+            [maps:get("nombre",Map), maps:get("clave",Map)]),
+  print_conferencias_de_asistente([maps:get("conferencias", Map)]),
+  print_asistente_temp(Resto);
+print_asistente_temp([]) ->
+  ok.
+
+lista_asistentes() ->
+	{servidor, nodo_servidor()} ! {self(), lista_a}, % pide al servidor al info
+  receive
+    {lista, L_Asistentes} ->
+      print_asistente_temp(L_Asistentes)
+  end.
 
 % lista_conferencias()
 %	Muestra a todas las conferencias registradas
+%%  conferencia: [#{conferencia => CONFERENCIA,
+%%                  titulo => TITULO,
+%%                  conferencista => CONFERENCISTA,
+%%                  horario => HORARIO,
+%%                  cupo => CUPO,
+%%                  asistentes => [A1, A2, A3, ...]}...]
+print_asistentes_de_conferencia([]) ->
+  io:format("  No hay mas asistentes por mostrar~n", []);
+print_asistentes_de_conferencia([Asistente | Resto]) ->
+  io:format("   Asistente: ~p~n", [Asistente]),
+  print_asistentes_de_conferencia(Resto).
 
+print_conferencias_temp([Map | Resto]) ->
+  io:format("Informacion de conferencia ~p con clave ~p impartida por ~p a la hora de ~p con cupo de ~p:~n",
+            [maps:get("titulo",Map), maps:get("conferencia",Map),
+             maps:get("conferencista",Map), maps:get("horario",Map), maps:get("cupo",Map)]),
+  print_asistentes_de_conferencia([maps:get("asistentes", Map)]),
+  print_asistente_temp(Resto);
+print_conferencias_temp([]) ->
+  ok.
+
+lista_conferencias() ->
+	{servidor, nodo_servidor()} ! {self(), lista_c}, % pide al servidor al info
+  receive
+    {list, L_Conferencias} ->
+      print_conferencias_temp(L_Conferencias)
+  end.
 % funcion que espera respuesta del servidor
 await_result() ->
 	receive
