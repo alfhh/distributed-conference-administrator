@@ -53,20 +53,116 @@ servidor(L_Asistentes, L_Conferencias) ->
 
  	{From, lista_a} -> % lista todos los asistentes con las conferencias a las que estan inscritos
 	    From ! {lista, L_Asistentes},
-	 		servidor(L_Asistentes, L_Conferencias)
+	 		servidor(L_Asistentes, L_Conferencias);
 
  	% {From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
  	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
  	% 	io:format("las conferencias son: ~p~n", [Resultado])
 	
-%	{From, Asistente, Conferencia, inscribe_c} ->
-%		ExisteAsistente = server_checaExistenciaAsistente(Asistente, L_Asistentes),
-%		ExisteConferencia = server_checaExistenciaConferencia(Conferencia, L_Conferencias),
-%		case ExisteAsistente and ExisteConferencia of
-%			true ->
-				
+	{From, Asistente, Conferencia, inscribe_c} ->
+		ExisteAsistente = server_checaExistenciaAsistente(Asistente, L_Asistentes),
+		ExisteConferencia = lists:keymember(Conferencia, 2, L_Conferencias),
+		io:format("inscribe conf ~p ~p ~n", [ExisteAsistente, ExisteConferencia]),
+		case ExisteAsistente and ExisteConferencia of
+			false ->
+				server_inexistenteAsistenteConferencia(From, ExisteAsistente, ExisteConferencia),
+				servidor(L_Asistentes, L_Conferencias);
+			true ->
+				CupoAsistente = server_checaCupoAsistente(Asistente, L_Asistentes),
+				CupoConferencia = server_checaCupoConferencia(Conferencia, L_Conferencias),
+				io:format("cupo conf ~p ~p ~n", [CupoAsistente, CupoConferencia]),
+				case CupoAsistente and CupoConferencia of
+					false ->
+						server_cupollenoAsistenteConferencia(From, ExisteAsistente, ExisteConferencia);
+					true ->	
+						From ! {servidor, inscribiendo_asistente_en_conferencia},
+						servidor(L_Asistentes, L_Conferencias)
+				end
+			end			
 
   end.
+
+%Checa si la conferencia ya tiene el cupo limite
+server_checaCupoConferencia(Conferencia, L_Conferencias) ->
+	case lists:keysearch(Conferencia, 2, L_Conferencias) of
+		false ->
+			io:format("server_checaCupoConferencia deberia de encotrar algo", []),
+			false;
+		{value, {PiDConf, Conferencia}} ->
+			PiDConf ! {self(), checar_cupo},
+		receive
+			{checar_cupo, What} -> % Normal response
+				io:format("checar cupo ~p~n", [What]),
+				What
+		after 5000 ->
+			io:format("No response from conferencia~n", []),
+			exit(timeout)
+		end
+	end.
+			
+
+%Checa si al asistente ya tiene 3 conferencias registradas
+server_checaCupoAsistente(_, []) ->
+	io:format("server_checaCupoAsistente no debio de haber llegado a una lista vacia", []),
+	false;
+server_checaCupoAsistente(Asistente, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			case maps:get("conferencias",MapAsistente) of
+				[] -> 
+					true;
+				listaConferencia ->
+					io:format("~p ~n", [listaConferencia]),
+					conferencias = length(listaConferencia),
+					conferencias < 3
+				end;
+		false -> 
+			server_checaCupoAsistente(Asistente, Rest)
+		end. 
+
+%Agrega una conferencia a las inscritas del asistente
+server_inscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			io:format("~p == ~p ~n", [maps:get("conferencias",MapAsistente), Conferencia]);	
+		false -> 
+			server_checaExistenciaAsistente(Asistente, Rest)
+		end. 
+
+%Manda el mensaje de error correspondiente cuando se quiere registrar un asistente a una conferencia 
+%llena o el asistente ya no puede
+server_cupollenoAsistenteConferencia(From, ExisteAsistente, ExisteConferencia) ->
+	io:format("inscribe conf ~p ~p ~n", [ExisteAsistente, ExisteConferencia]),
+	case ExisteAsistente of
+		false ->
+			case ExisteConferencia of
+				false ->
+					From ! {servidor, asistente_y_conferencia_llenos};
+				true ->
+					From ! {servidor, asistente_lleno}
+				end;
+		true ->
+			From ! {servidor, conferencia_llena}
+		end.
+
+%Manda el mensaje de error correspondiente cuando se quiere registrar un asistente a una conferencia
+server_inexistenteAsistenteConferencia(From, ExisteAsistente, ExisteConferencia) ->
+	io:format("inscribe conf ~p ~p ~n", [ExisteAsistente, ExisteConferencia]),
+	case ExisteAsistente of
+		false ->
+			case ExisteConferencia of
+				false ->
+					From ! {servidor, asistente_y_conferencia_inexixtentes};
+				true ->
+					From ! {servidor, asistente_inexixtente}
+				end;
+		true ->
+			From ! {servidor, conferencia_inexixtente}
+		end.
 
 
 % se imprime la lista de conferencias de un asistente
@@ -183,7 +279,8 @@ asistente(Server_Node).
 % Asistente -> clave unica del asistente
 % Conferencia -> clave unica de la Conferencia
 inscribe_conferencia(Asistente, Conferencia) ->
-	{servidor, Server_Node} ! {self(), Asistente, Conferencia, inscribe_c}. % inscribe conferencia
+	{servidor, nodo_servidor()} ! {self(), Asistente, Conferencia, inscribe_c}, % inscribe conferencia
+	await_result().
 
 %desinscribe_conferencia(Asistente, Conferencia)
 % Asistente -> clave unica del asistente
@@ -234,7 +331,10 @@ conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 % % proceso que realiza una conferencia una vez que esta linkeada y lista
 conferencia(MapConferencia) ->
 	receive
-		{registrar_asistente, Asistente} ->
+		{Server, checar_cupo} ->
+			io:format("Conferencia: ~p ~p ~n", [length(maps:get("asistentes",MapConferencia)), maps:get("cupo",MapConferencia)]),
+			Server ! {checar_cupo, length(maps:get("asistentes",MapConferencia)) =< maps:get("cupo",MapConferencia)};
+		{Server, registrar_asistente, Asistente} ->
 			io:format("Conferencia: ~p~n Asistente: ~p~n", [MapConferencia, Asistente]);
 		logoff ->
 			io:format("Cerrando conferencia..~n", []),
