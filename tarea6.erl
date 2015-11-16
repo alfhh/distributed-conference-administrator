@@ -6,7 +6,7 @@
 %
 % --------------------------------------------------------------- Meta
 -module(tarea6).
--export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, 
+-export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1,
 	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
@@ -15,7 +15,7 @@
 %% usar. Acontinuacion, el nombre estara antes del numero de linea
 %% a ejecutar.
 nodo_servidor() ->
-  servidor@menelaptop.
+  servidor@localhost.
 
 %% el proceso que corre de administracion
 %% las listas tienen el formato de:
@@ -37,8 +37,9 @@ servidor() ->
 servidor(L_Asistentes, L_Conferencias) ->
   receive
 
- 	{From, registra_c, Conferencia, Titulo, Conferencista, Horario, Cupo} -> % agregar una nueva conferencia
- 		Nueva_Conferencias = server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias),
+ 	{From, Conferencia, registra_c} -> % agregar una nueva conferencia
+		io:format("nueva conf ~p ~n", [{From, Conferencia}]),
+ 		Nueva_Conferencias = server_nuevaConferencia(From, Conferencia, L_Conferencias),
  		servidor(L_Asistentes, Nueva_Conferencias);
 
  	{From, registra_a, Asistente, Nombre} -> % agregar un nuevo asistente
@@ -114,21 +115,20 @@ server_checaExistenciaConferencia(Conferencia, L_Conferencias) ->
 			server_checaExistenciaConferencia(Conferencia, Rest)
 		end. 
 
-% se agrega una nueva conferencia TODO checar que no sean repetidos
-server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias) ->
-Existe = server_checaExistenciaConferencia(Conferencia, L_Conferencias),
-case Existe of
-	true ->
-			From ! {servidor, conferencia_no_registrada}, %reject register
+% se agrega una nueva conferencia
+server_nuevaConferencia(From, Conferencia, L_Conferencias) ->
+	Existe = lists:keymember(Conferencia, 2, L_Conferencias),
+	case Existe of
+		true ->
+			From ! {servidor, conferencia_no_registrada_ya_existe}, %rechazar registro
 			L_Conferencias;
-	false ->
-		Map = #{"conferencia" => Conferencia, "titulo" => Titulo, "conferencista" => Conferencista,
-				"horario" => Horario, "cupo" => Cupo, "asistentes" => []},
-		From ! {servidor, conferencia_agregada},
-		link(From),
-		io:format("Conferencias actuales: ~p~n", [[Map | L_Conferencias]]),
-		[Map | L_Conferencias]
-	end.
+		false ->
+			io:format("~p~n", [{From, Conferencia}]),
+			From ! {servidor, conferencia_agregada},
+			link(From),
+			io:format("Conferencias actuales: ~p~n", [[{From, Conferencia} | L_Conferencias]]),
+			[{From, Conferencia} | L_Conferencias]
+		end.
 
 
 %% Empieza el servidor
@@ -214,19 +214,24 @@ registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 
 % iniciando creacion de conferencia
 conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
-	{servidor, Server_Node} ! {self(), registra_c, 
-		Conferencia, Titulo, Conferencista, Horario, Cupo}, % informar al server
+	MapConferencia = #{"conferencia" => Conferencia, "titulo" => Titulo, "conferencista" => Conferencista,
+		"horario" => Horario, "cupo" => Cupo, "asistentes" => []},
+	io:format("Conferencia: ~p~n", [{self(), Conferencia}]),
+	{servidor, Server_Node} ! {self(), Conferencia, registra_c}, % informar al server
 	await_result(),
-	conferencia(Server_Node).
+	io:format("Conferencia: ~p~n", [MapConferencia]),
+	conferencia(MapConferencia).
 
 % % proceso que realiza una conferencia una vez que esta linkeada y lista
-conferencia(Server_Node) ->
+conferencia(MapConferencia) ->
 	receive
+		{registrar_asistente, Asistente} ->
+			io:format("Conferencia: ~p~n Asistente: ~p~n", [MapConferencia, Asistente]);
 		logoff ->
 			io:format("Cerrando conferencia..~n", []),
 			exit(normal)
 	end,
-	conferencia(Server_Node).
+	conferencia(MapConferencia).
 	
 
 %elimina_conferencia(Conferencia)
