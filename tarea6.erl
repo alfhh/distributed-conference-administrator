@@ -7,7 +7,7 @@
 % --------------------------------------------------------------- Meta
 -module(tarea6).
 -export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1,
-	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0]).
+	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
 %% nodo servidor (para ver tu nombre corre en UNIX con el comando
@@ -58,6 +58,13 @@ servidor(L_Asistentes, L_Conferencias) ->
  	% {From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
  	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
  	% 	io:format("las conferencias son: ~p~n", [Resultado])
+	
+%	{From, Asistente, Conferencia, inscribe_c} ->
+%		ExisteAsistente = server_checaExistenciaAsistente(Asistente, L_Asistentes),
+%		ExisteConferencia = server_checaExistenciaConferencia(Conferencia, L_Conferencias),
+%		case ExisteAsistente and ExisteConferencia of
+%			true ->
+				
 
   end.
 
@@ -175,6 +182,8 @@ asistente(Server_Node).
 %inscribe_conferencia(Asistente, Conferencia)
 % Asistente -> clave unica del asistente
 % Conferencia -> clave unica de la Conferencia
+inscribe_conferencia(Asistente, Conferencia) ->
+	{servidor, Server_Node} ! {self(), Asistente, Conferencia, inscribe_c}. % inscribe conferencia
 
 %desinscribe_conferencia(Asistente, Conferencia)
 % Asistente -> clave unica del asistente
