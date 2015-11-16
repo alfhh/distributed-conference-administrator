@@ -15,7 +15,7 @@
 %% usar. Acontinuacion, el nombre estara antes del numero de linea
 %% a ejecutar.
 nodo_servidor() ->
-  servidor@localhost.
+  servidor@menelaptop.
 
 %% el proceso que corre de administracion
 %% las listas tienen el formato de:
@@ -71,6 +71,7 @@ servidor(L_Asistentes, L_Conferencias) ->
 	% 		server_transfer(From, Name, To, Message, User_List)
 	% end.
 
+% Recorre la lista de mapas para ver si existe un asistente repetido. False = no se repite.
 server_checaExistenciaAsistente(_, []) ->
 	false;
 server_checaExistenciaAsistente(Asistente, L_Asistentes) ->
@@ -82,7 +83,6 @@ server_checaExistenciaAsistente(Asistente, L_Asistentes) ->
 		false -> 
 			server_checaExistenciaAsistente(Asistente, Rest)
 		end. 
-
 
 
 % se agrega un nuevo asistente a la lista del server
@@ -100,14 +100,35 @@ server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
 			[Map | L_Asistentes] %add user to the list
 		end.
 
+
+% Recorre la lista de mapas para ver si existe una conferencia repetida. False = no se repite.
+server_checaExistenciaConferencia(_, []) ->
+	false;
+server_checaExistenciaConferencia(Conferencia, L_Conferencias) ->
+	[MapConferencia | Rest] = L_Conferencias,
+	io:format("~p == ~p ~n", [MapConferencia, Conferencia]),
+	case maps:get("conferencia",MapConferencia) == Conferencia of
+		true ->
+			true;
+		false -> 
+			server_checaExistenciaConferencia(Conferencia, Rest)
+		end. 
+
 % se agrega una nueva conferencia TODO checar que no sean repetidos
 server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias) ->
-	Map = #{"conferencia" => Conferencia, "titulo" => Titulo, "conferencista" => Conferencista,
-			"horario" => Horario, "cupo" => Cupo, "asistentes" => []},
-	From ! {servidor, conferencia_agregada},
-	link(From),
-	io:format("Conferencias actuales: ~p~n", [[Map | L_Conferencias]]),
-	[Map | L_Conferencias].
+Existe = server_checaExistenciaConferencia(Conferencia, L_Conferencias),
+case Existe of
+	true ->
+			From ! {servidor, conferencia_no_registrada}, %reject register
+			L_Conferencias;
+	false ->
+		Map = #{"conferencia" => Conferencia, "titulo" => Titulo, "conferencista" => Conferencista,
+				"horario" => Horario, "cupo" => Cupo, "asistentes" => []},
+		From ! {servidor, conferencia_agregada},
+		link(From),
+		io:format("Conferencias actuales: ~p~n", [[Map | L_Conferencias]]),
+		[Map | L_Conferencias]
+	end.
 
 
 %% Empieza el servidor
