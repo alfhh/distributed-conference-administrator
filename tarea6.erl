@@ -15,7 +15,7 @@
 %% usar. Acontinuacion, el nombre estara antes del numero de linea
 %% a ejecutar.
 nodo_servidor() ->
-  servidor@G55.
+  servidor@localhost.
 
 %% el proceso que corre de administracion
 %% las listas tienen el formato de:
@@ -71,15 +71,34 @@ servidor(L_Asistentes, L_Conferencias) ->
 	% 		server_transfer(From, Name, To, Message, User_List)
 	% end.
 
+server_checaExistenciaAsistente(_, []) ->
+	false;
+server_checaExistenciaAsistente(Asistente, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			true;
+		false -> 
+			server_checaExistenciaAsistente(Asistente, Rest)
+		end. 
+
 
 
 % se agrega un nuevo asistente a la lista del server
 server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
-		Map = #{"clave" => Asistente, "nombre" => Nombre, "conferencias" => []},
-		From ! {servidor, asistente_registrado},
-		link(From),
-		io:format("Lista actual: ~p~n", [[Map | L_Asistentes]]),
-		[Map | L_Asistentes]. %add user to the list
+	Existe = server_checaExistenciaAsistente(Asistente, L_Asistentes),
+	case Existe of
+		true ->
+			From ! {servidor, asistente_no_registrado}, %reject register
+			L_Asistentes;
+		false ->
+			Map = #{"clave" => Asistente, "nombre" => Nombre, "conferencias" => []},
+			From ! {servidor, asistente_registrado},
+			link(From),
+			io:format("Lista actual: ~p~n", [[Map | L_Asistentes]]),
+			[Map | L_Asistentes] %add user to the list
+		end.
 
 % se agrega una nueva conferencia TODO checar que no sean repetidos
 server_nuevaConferencia(From, Conferencia, Titulo, Conferencista, Horario, Cupo, L_Conferencias) ->
@@ -245,19 +264,19 @@ print_asistentes_de_conferencia([Asistente | Resto]) ->
   io:format("   Asistente: ~p~n", [Asistente]),
   print_asistentes_de_conferencia(Resto).
 
+print_conferencias_temp([]) ->
+  ok;
 print_conferencias_temp([Map | Resto]) ->
   io:format("Informacion de conferencia ~p con clave ~p impartida por ~p a la hora de ~p con cupo de ~p:~n",
             [maps:get("titulo",Map), maps:get("conferencia",Map),
              maps:get("conferencista",Map), maps:get("horario",Map), maps:get("cupo",Map)]),
   print_asistentes_de_conferencia([maps:get("asistentes", Map)]),
-  print_asistente_temp(Resto);
-print_conferencias_temp([]) ->
-  ok.
+  print_asistente_temp(Resto).
 
 lista_conferencias() ->
 	{servidor, nodo_servidor()} ! {self(), lista_c}, % pide al servidor al info
   receive
-    {list, L_Conferencias} ->
+    {lista, L_Conferencias} ->
       print_conferencias_temp(L_Conferencias)
   end.
 % funcion que espera respuesta del servidor

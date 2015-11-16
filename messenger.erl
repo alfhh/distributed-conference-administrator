@@ -6,7 +6,7 @@ logon/1, logoff/0, message/2, client/2]).
 %%% messenger server runs
 
 server_node() ->
-	messenger@super.
+	super@localhost.
 
 %%% This is the server process for the "messenger"
 %%% the user list has the format [{ClientPid1, Name1},{ClientPid22, Name2},...]
@@ -74,10 +74,15 @@ server_transfer(From, Name, To, Message, User_List) ->
 logon(Name) ->
 	case whereis(mess_client) of
 		undefined ->
+			{ok, InputServer} = io:fread("ServerNode: ", "~a"),
+			[ServerNode | _ ] = InputServer,
+			io:write(InputServer),
+			io:write(ServerNode),
 			register(mess_client,
-				spawn(messenger, client, [server_node(), Name]));
+				spawn(messenger, client, [ServerNode, Name]));
 		_ -> already_logged_on
 	end.
+
 
 logoff() ->
 	mess_client ! logoff.
