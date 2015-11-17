@@ -6,7 +6,7 @@
 %
 % --------------------------------------------------------------- Meta
 -module(tarea6).
--export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1,
+-export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1, asistentes_inscritos/1, 
 	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
@@ -55,9 +55,14 @@ servidor(L_Asistentes, L_Conferencias) ->
 	    From ! {lista, L_Asistentes},
 	 		servidor(L_Asistentes, L_Conferencias);
 
- 	% {From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
+ 	%{From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
  	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
  	% 	io:format("las conferencias son: ~p~n", [Resultado])
+
+	{From, asistentes_en, Conferencia} -> % imprimir las conferencias de Asistente
+	 	Resultado = server_asistentesEn(From, Conferencia, L_Asistentes, L_Conferencias),
+ 	 	io:format("los asistentes son: ~p~n", [Resultado]),
+		servidor(L_Asistentes, L_Conferencias);
 	
 	{From, Asistente, Conferencia, inscribe_c} ->
 		ExisteAsistente = server_checaExistenciaAsistente(Asistente, L_Asistentes),
@@ -87,6 +92,49 @@ servidor(L_Asistentes, L_Conferencias) ->
 		end			
 
   end.
+
+%Busca el atomo de un asistente en la lista de asistentes
+server_buscarAsistente(_, []) ->
+	[];
+server_buscarAsistente(Asistente, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			maps:remove("conferencias", MapAsistente);
+		false -> 
+			server_buscarAsistente(Asistente, Rest)
+		end. 
+
+%Obtiene los datos de los asistentes con la lista de atomos de la conferencia
+server_obtenerAsistentes([], _) ->
+	[];
+server_obtenerAsistentes(Asistentes, L_Asistentes) ->
+	io:format("Asistentes en conferencia ~p~n", [Asistentes]),
+	case Asistentes of
+		[Asistente, Rest] ->
+			[server_buscarAsistente(Asistente, L_Asistentes) | server_obtenerAsistentes(Rest, L_Asistentes)];
+		Asistente->
+			server_buscarAsistente(Asistente, L_Asistentes)
+	end.
+	
+
+%Obtiene los datos de los asistentes de una conferencia
+server_asistentesEn(From, Conferencia, L_Asistentes, L_Conferencias) ->
+	case lists:keysearch(Conferencia, 2, L_Conferencias) of
+		false ->
+			io:format("server_inscribirConferenciaAsistente deberia de encotrar algo", []),
+			false;
+		{value, {PiDConf, Conferencia}} ->
+			PiDConf ! {self(), asistentes_en},
+			receive
+				{asistentes_en, Asistentes} -> % Normal response
+					io:format("Asistentes en conferencia ~p~n", [Asistentes]),
+					From ! {asistentes_en, server_obtenerAsistentes(Asistentes, L_Asistentes)},
+					server_obtenerAsistentes(Asistentes, L_Asistentes)
+				after 5000 ->
+					io:format("No response from conferencia~n", [])
+			end
+	end.
 
 %Checa si un asistente ya esta inscrito en una conferencia
 server_checaExistenciaInscripcion(_, _, []) ->
@@ -218,14 +266,17 @@ server_inexistenteAsistenteConferencia(From, ExisteAsistente, ExisteConferencia)
 
 
 % se imprime la lista de conferencias de un asistente
+%server_conferenciasDe(_, _, []) ->
+%	io:format("server_conferenciasDe no debio de haber llegado a una lista vacia", []),
+%	[];
 %server_conferenciasDe(From, Asistente, L_Asistentes) ->
-	%foreach 
-	% case maps:find(From, 1, L_Asistentes) of
-	% 	error ->
-	% 		From ! {tarea6, stop, asistente_no_registrado};
-	% 	{value, {_, Name}} ->
-	% 		server_transfer(From, Name, To, Message, User_List)
-	% end.
+%	foreach 
+%	 case maps:find(From, 1, L_Asistentes) of
+%		error ->
+%	 		From ! {tarea6, stop, asistente_no_registrado};
+%	 	{value, {_, Name}} ->
+%			server_transfer(From, Name, To, Message, User_List)
+%	 end.
 
 % Recorre la lista de mapas para ver si existe un asistente repetido. False = no se repite.
 server_checaExistenciaAsistente(_, []) ->
@@ -332,7 +383,14 @@ conferencias_inscritas(Asistente) ->
 		undefined ->
 			no_existe_asistente;
 		_ -> 
-			{servidor, nodo_servidor()} ! {conferencias_de, Asistente}
+			{servidor, nodo_servidor()} ! {self(), conferencias_de, Asistente},
+			receive
+				{conferencias_de, What} -> % Normal response
+					io:format("~p~n", [What])
+			after 5000 ->
+				io:format("No response from server~n", []),
+				exit(timeout)
+			end
 	end.
 
 % --------------------------------------------------------------- Conferencia
@@ -379,6 +437,9 @@ conferencia(MapConferencia) ->
 			io:format("NUEVA Conferencia: ~p~n", [MapNuevoConferencia]),
 			Server ! {registrar_asistente, asistente_inscrito},
 			conferencia(MapNuevoConferencia);
+		{Server, asistentes_en} ->
+			Server ! {asistentes_en, maps:get("asistentes",MapConferencia)},
+			conferencia(MapConferencia);
 		logoff ->
 			io:format("Cerrando conferencia..~n", []),
 			exit(normal)
@@ -390,6 +451,15 @@ conferencia(MapConferencia) ->
 
 %asistentes_inscritos(Conferencia)
 %	Muestra las claves y nombres de los asistentes de esta conferencia
+asistentes_inscritos(Conferencia) ->
+	{servidor, nodo_servidor()} ! {self(), asistentes_en, Conferencia},
+		receive
+			{asistentes_en, What} -> % Normal response
+				io:format("Los asistentes a la conferencia son: ~p~n", [What])
+		after 5000 ->
+			io:format("No response from server~n", []),
+			exit(timeout)
+		end.
 
 % --------------------------------------------------------------- Administracion
 
