@@ -70,16 +70,17 @@ servidor(L_Asistentes, L_Conferencias) ->
 			true ->
 				CupoAsistente = server_checaCupoAsistente(Asistente, L_Asistentes),
 				CupoConferencia = server_checaCupoConferencia(Conferencia, L_Conferencias),
-				io:format("cupo conf ~p ~p ~n", [CupoAsistente, CupoConferencia]),
-				case CupoAsistente and CupoConferencia of
+				EstaInscrito = server_checaExistenciaInscripcion(Asistente, Conferencia, L_Asistentes),
+				io:format("cupo conf ~p ~p ~p ~n", [CupoAsistente, CupoConferencia, EstaInscrito]),
+				case CupoAsistente and CupoConferencia and not EstaInscrito of
 					false ->
-						server_cupollenoAsistenteConferencia(From, CupoAsistente, CupoConferencia),
+						server_cupollenoAsistenteConferencia(From, CupoAsistente, CupoConferencia, EstaInscrito),
 						servidor(L_Asistentes, L_Conferencias);
 					true ->	
 						io:format("listas anteriores ~p ~p ~n", [L_Asistentes, L_Conferencias]),
 						From ! {servidor, inscribiendo_asistente_en_conferencia},
 						Nueva_Asistentes = server_inscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistentes),
-						server_inscribirConferenciaAsistente(From, Asistente, Conferencia, L_Conferencias),
+						server_inscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias),
 						io:format("nuevas listas ~p ~p ~n", [Nueva_Asistentes, L_Conferencias]),
 						servidor(Nueva_Asistentes, L_Conferencias)
 				end
@@ -87,8 +88,28 @@ servidor(L_Asistentes, L_Conferencias) ->
 
   end.
 
+%Checa si un asistente ya esta inscrito en una conferencia
+server_checaExistenciaInscripcion(_, _, []) ->
+	io:format("server_checaExistenciaInscripcion no debio de haber llegado a una lista vacia", []),
+	false;
+server_checaExistenciaInscripcion(Asistente, Conferencia, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	%io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			case maps:get("conferencias",MapAsistente) of
+				[] -> 
+					false;
+				ListaConferencia ->
+					io:format("conferencias del asistente: ~p ~n", [ListaConferencia]),
+					lists:any(fun(X) -> X == Conferencia end, ListaConferencia)
+				end;
+		false -> 
+			server_checaExistenciaInscripcion(Asistente, Conferencia, Rest)
+		end. 
+
 %Manda a inscribir el asistente en la conferencia
-server_inscribirConferenciaAsistente(From, Asistente, Conferencia, L_Conferencias) ->
+server_inscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias) ->
 	case lists:keysearch(Conferencia, 2, L_Conferencias) of
 		false ->
 			io:format("server_inscribirConferenciaAsistente deberia de encotrar algo", []),
@@ -161,18 +182,23 @@ server_inscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistentes)
 
 %Manda el mensaje de error correspondiente cuando se quiere registrar un asistente a una conferencia 
 %llena o el asistente ya no puede
-server_cupollenoAsistenteConferencia(From, CupoAsistente, CupoConferencia) ->
+server_cupollenoAsistenteConferencia(From, CupoAsistente, CupoConferencia, EstaInscrito) ->
 	%io:format("cupo de conf y de asistente ~p ~p ~n", [CupoAsistente, CupoConferencia]),
-	case CupoAsistente of
+	case EstaInscrito of
 		false ->
-			case CupoConferencia of
+			case CupoAsistente of
 				false ->
-					From ! {servidor, asistente_y_conferencia_llenos};
+					case CupoConferencia of
+						false ->
+							From ! {servidor, asistente_y_conferencia_llenos};
+						true ->
+							From ! {servidor, asistente_lleno}
+						end;
 				true ->
-					From ! {servidor, asistente_lleno}
+					From ! {servidor, conferencia_llena}
 				end;
 		true ->
-			From ! {servidor, conferencia_llena}
+			From ! {servidor, asistente_ya_estaba_inscrito}
 		end.
 
 %Manda el mensaje de error correspondiente cuando se quiere registrar un asistente a una conferencia
@@ -229,20 +255,6 @@ server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
 			io:format("Lista actual: ~p~n", [[Map | L_Asistentes]]),
 			[Map | L_Asistentes] %add user to the list
 		end.
-
-
-% Recorre la lista de mapas para ver si existe una conferencia repetida. False = no se repite.
-server_checaExistenciaConferencia(_, []) ->
-	false;
-server_checaExistenciaConferencia(Conferencia, L_Conferencias) ->
-	[MapConferencia | Rest] = L_Conferencias,
-	io:format("~p == ~p ~n", [MapConferencia, Conferencia]),
-	case maps:get("conferencia",MapConferencia) == Conferencia of
-		true ->
-			true;
-		false -> 
-			server_checaExistenciaConferencia(Conferencia, Rest)
-		end. 
 
 % se agrega una nueva conferencia
 server_nuevaConferencia(From, Conferencia, L_Conferencias) ->
@@ -359,7 +371,7 @@ conferencia(MapConferencia) ->
 	receive
 		{Server, checar_cupo} ->
 			io:format("Conferencia: ~p ~p ~n", [length(maps:get("asistentes",MapConferencia)), maps:get("cupo",MapConferencia)]),
-			Server ! {checar_cupo, length(maps:get("asistentes",MapConferencia)) =< maps:get("cupo",MapConferencia)},
+			Server ! {checar_cupo, length(maps:get("asistentes",MapConferencia)) < maps:get("cupo",MapConferencia)},
 			conferencia(MapConferencia);
 		{Server, registrar_asistente, Asistente} ->
 			io:format("Conferencia: ~p~n Asistente: ~p~n", [MapConferencia, Asistente]),
