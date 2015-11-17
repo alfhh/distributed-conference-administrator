@@ -7,7 +7,7 @@
 % --------------------------------------------------------------- Meta
 -module(tarea6).
 -export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1, asistentes_inscritos/1, 
-	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2]).
+	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2, elimina_asistente/1]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
 %% nodo servidor (para ver tu nombre corre en UNIX con el comando
@@ -47,13 +47,25 @@ servidor(L_Asistentes, L_Conferencias) ->
  		Nueva_Asistentes = server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes),
  		servidor(Nueva_Asistentes, L_Conferencias);
 
- 	{From, lista_c} -> % lista todas las conferencias con los asistentes inscritos
-	    From ! {lista, L_Conferencias},
+ 	{From, lista_conferencias} -> % lista todas las conferencias con los asistentes inscritos
+      		server_pide_conferencia(L_Conferencias, [], From),
 	 		servidor(L_Asistentes, L_Conferencias);
 
  	{From, lista_a} -> % lista todos los asistentes con las conferencias a las que estan inscritos
 	    From ! {lista, L_Asistentes},
 	 		servidor(L_Asistentes, L_Conferencias);
+
+	 {From, elimina_a, Asistente} -> % Asistente debe ser eliminado!
+		io:format("estoy aqui ~n", []),
+		Elimina_asistente = server_eliminaAsistente(From, Asistente, L_Asistentes),
+		case Elimina_asistente == L_Asistentes of
+		    	true ->
+		    		From ! {servidor, asistente_inexistente},
+		    		servidor(Elimina_asistente, L_Conferencias);
+		    	false ->
+		    		From ! {servidor, asistente_eliminado},
+		    		servidor(Elimina_asistente, L_Conferencias)
+		end;	
 
  	%{From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
  	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
@@ -171,6 +183,13 @@ server_inscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias) ->
 					io:format("No response from conferencia~n", [])
 			end
 	end.
+
+%Manda a inscribir el asistente en la conferencia
+	server_eliminaAsistente(Asistente, L_Asistentes) ->
+		[MapAsistente || MapAsistente <- L_Asistentes,
+        	maps:find("clave", MapAsistente) =/= {ok, Asistente}].
+
+
 
 %Checa si la conferencia ya tiene el cupo limite
 server_checaCupoConferencia(Conferencia, L_Conferencias) ->
@@ -307,6 +326,11 @@ server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
 			[Map | L_Asistentes] %add user to the list
 		end.
 
+%Manda a inscribir el asistente en la conferencia
+server_eliminaAsistente(From, Asistente, L_Asistentes) ->
+	[MapAsistente || MapAsistente <- L_Asistentes,
+	maps:find("clave", MapAsistente) =/= {ok, Asistente}].
+
 % se agrega una nueva conferencia
 server_nuevaConferencia(From, Conferencia, L_Conferencias) ->
 	Existe = lists:keymember(Conferencia, 2, L_Conferencias),
@@ -363,6 +387,10 @@ asistente(Server_Node).
 
 %elimina_asistente(Asistente)
 %	eliminar todas las inscripciones a conferencias de Asistente
+elimina_asistente(Asistente) ->
+	{servidor, nodo_servidor()} ! {self(), elimina_a, Asistente},
+	await_result().
+
 
 %inscribe_conferencia(Asistente, Conferencia)
 % Asistente -> clave unica del asistente
@@ -440,6 +468,9 @@ conferencia(MapConferencia) ->
 		{Server, asistentes_en} ->
 			Server ! {asistentes_en, maps:get("asistentes",MapConferencia)},
 			conferencia(MapConferencia);
+		{Server, imprime_informacion} ->
+		      	Server ! {una_conferencia, MapConferencia},
+		      	conferencia(MapConferencia);
 		logoff ->
 			io:format("Cerrando conferencia..~n", []),
 			exit(normal)
@@ -504,7 +535,6 @@ lista_asistentes() ->
 %%                  conferencista => CONFERENCISTA,
 %%                  horario => HORARIO,
 %%                  cupo => CUPO,
-%%                  asistentes => [A1, A2, A3, ...]}...]
 print_asistentes_de_conferencia([]) ->
   io:format("  No hay mas asistentes por mostrar~n", []);
 print_asistentes_de_conferencia([Asistente | Resto]) ->
@@ -518,13 +548,28 @@ print_conferencias_temp([Map | Resto]) ->
             [maps:get("titulo",Map), maps:get("conferencia",Map),
              maps:get("conferencista",Map), maps:get("horario",Map), maps:get("cupo",Map)]),
   print_asistentes_de_conferencia([maps:get("asistentes", Map)]),
-  print_asistente_temp(Resto).
+  print_conferencias_temp(Resto).
+
+%funcion llamada desde el servidor para imprimir la info de cada conferencia
+server_pide_conferencia([Tupla | Resto], ListaMapa, Requester) ->
+  {Pid, _} = Tupla,
+  Pid ! {self(), imprime_informacion},
+  receive
+    {una_conferencia, Mapa} ->
+      NuevaLista = ListaMapa++[Mapa]
+  after 5000 ->
+      io:format("No se consiguio la informacion", []),
+      NuevaLista = ListaMapa
+  end,
+  server_pide_conferencia(Resto, NuevaLista, Requester);
+server_pide_conferencia([], ListaMapa, Requester) ->
+  Requester ! {lista_hecha, ListaMapa}.
 
 lista_conferencias() ->
-	{servidor, nodo_servidor()} ! {self(), lista_c}, % pide al servidor al info
+	{servidor, nodo_servidor()} ! {self(), lista_conferencias}, % pide al servidor al info
   receive
-    {lista, L_Conferencias} ->
-      print_conferencias_temp(L_Conferencias)
+    {lista_hecha, Conferencias} ->
+      print_conferencias_temp(Conferencias)
   end.
 % funcion que espera respuesta del servidor
 await_result() ->
