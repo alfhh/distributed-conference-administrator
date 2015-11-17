@@ -57,7 +57,7 @@ servidor(L_Asistentes, L_Conferencias) ->
 
 	 {From, elimina_a, Asistente} -> % Asistente debe ser eliminado!
 		io:format("estoy aqui ~n", []),
-		Elimina_asistente = server_eliminaAsistente(From, Asistente, L_Asistentes),
+		Elimina_asistente = server_eliminaAsistente(Asistente, L_Asistentes, []),
 		case Elimina_asistente == L_Asistentes of
 		    	true ->
 		    		From ! {servidor, asistente_inexistente},
@@ -183,12 +183,6 @@ server_inscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias) ->
 					io:format("No response from conferencia~n", [])
 			end
 	end.
-
-%Manda a inscribir el asistente en la conferencia
-	server_eliminaAsistente(Asistente, L_Asistentes) ->
-		[MapAsistente || MapAsistente <- L_Asistentes,
-        	maps:find("clave", MapAsistente) =/= {ok, Asistente}].
-
 
 
 %Checa si la conferencia ya tiene el cupo limite
@@ -326,10 +320,6 @@ server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes) ->
 			[Map | L_Asistentes] %add user to the list
 		end.
 
-%Manda a inscribir el asistente en la conferencia
-server_eliminaAsistente(From, Asistente, L_Asistentes) ->
-	[MapAsistente || MapAsistente <- L_Asistentes,
-	maps:find("clave", MapAsistente) =/= {ok, Asistente}].
 
 % se agrega una nueva conferencia
 server_nuevaConferencia(From, Conferencia, L_Conferencias) ->
@@ -479,6 +469,17 @@ conferencia(MapConferencia) ->
 
 %elimina_conferencia(Conferencia)
 %	Eliminar todas las inscripciones, borrarla de la info de los asistentes
+server_eliminaAsistente(_, [], Acum) ->
+	io:format("Lista actual: ~p~n", [Acum]),
+	Acum;
+server_eliminaAsistente(Asistente, [MapAsistente | Rest], Acum) ->
+	io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+    	case maps:find("clave", MapAsistente) == {ok,Asistente} of
+        	true ->
+      		      	server_eliminaAsistente(Asistente, Rest, Acum);
+        	false -> 
+            		server_eliminaAsistente(Asistente, Rest, lists:append(Acum, [MapAsistente]))
+    	end. 
 
 %asistentes_inscritos(Conferencia)
 %	Muestra las claves y nombres de los asistentes de esta conferencia
