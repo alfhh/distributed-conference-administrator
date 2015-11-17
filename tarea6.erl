@@ -6,7 +6,7 @@
 %
 % --------------------------------------------------------------- Meta
 -module(tarea6).
--export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1, asistentes_inscritos/1, 
+-export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1, asistentes_inscritos/1, desinscribe_conferencia/2,
 	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2, elimina_asistente/1]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
@@ -66,6 +66,21 @@ servidor(L_Asistentes, L_Conferencias) ->
 		    		From ! {servidor, asistente_eliminado},
 		    		servidor(Elimina_asistente, L_Conferencias)
 		end;	
+
+	{From, Asistente, Conferencia, desinscribe} -> %Asistente a desinscribirse de la conferencia
+		io:format("Desinscribirse ~n", []),
+		ExisteAsistente = server_checaExistenciaAsistente(Asistente, L_Asistentes),
+		ExisteConferencia = lists:keymember(Conferencia, 2, L_Conferencias),
+		io:format("existentes conf ~p ~p ~n", [ExisteAsistente, ExisteConferencia]),
+		case ExisteAsistente and ExisteConferencia of
+			false ->
+				server_inexistenteAsistenteConferencia(From, ExisteAsistente, ExisteConferencia),
+				servidor(L_Asistentes, L_Conferencias);
+			true ->
+				Nueva_Asistentes = server_desinscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistentes),
+				server_desinscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias)
+				
+		end;
 
  	%{From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
  	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
@@ -184,6 +199,22 @@ server_inscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias) ->
 			end
 	end.
 
+%Manda a desdesinscribir el asistente en la conferencia
+server_desinscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias) ->
+	case lists:keysearch(Conferencia, 2, L_Conferencias) of
+		false ->
+			io:format("server_desinscribirConferenciaAsistente deberia de encotrar algo", []),
+			false;
+		{value, {PiDConf, Conferencia}} ->
+			PiDConf ! {self(), desinscribir_asistente, Asistente},
+			receive
+				{registrar_asistente, What} -> % Normal response
+						io:format("Se inscribio asistente ~p~n", [What])
+				after 5000 ->
+					io:format("No response from conferencia~n", [])
+			end
+	end.
+
 
 %Checa si la conferencia ya tiene el cupo limite
 server_checaCupoConferencia(Conferencia, L_Conferencias) ->
@@ -223,6 +254,24 @@ server_checaCupoAsistente(Asistente, L_Asistentes) ->
 		false -> 
 			server_checaCupoAsistente(Asistente, Rest)
 		end. 
+
+%Agrega una conferencia a las inscritas del asistente
+server_desinscribirAsistenteConferencia(_, _, _, []) ->
+	io:format("server_inscribirAsistenteConferencia no debio de haber llegado a una lista vacia", []),
+	[];
+server_desinscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	%io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			io:format("~p + ~p = ~p~n", [maps:get("conferencias",MapAsistente), Conferencia,
+				[Conferencia | maps:get("conferencias",MapAsistente)]]),
+			MapNuevoAsistente = maps:update("conferencias", [Conferencia | maps:get("conferencias",MapAsistente)], MapAsistente),
+			[MapNuevoAsistente | Rest];
+		false -> 
+			[MapAsistente | server_inscribirAsistenteConferencia(From, Asistente, Conferencia, Rest)]
+		end. 
+
 
 %Agrega una conferencia a las inscritas del asistente
 server_inscribirAsistenteConferencia(_, _, _, []) ->
@@ -392,7 +441,9 @@ inscribe_conferencia(Asistente, Conferencia) ->
 %desinscribe_conferencia(Asistente, Conferencia)
 % Asistente -> clave unica del asistente
 % Conferencia -> clave unica de la Conferencia
-
+desinscribe_conferencia(Asistente, Conferencia) ->
+	{servidor, nodo_servidor()} ! {self(), Asistente, Conferencia, desinscribe}, % inscribe conferencia
+	await_result().
 %conferencias_inscritas(Asistente)
 %	Despliega claves, titulos, horarios, cupos y asistentes inscritos
 
@@ -441,6 +492,7 @@ conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 	await_result(),
 	io:format("Conferencia: ~p~n", [MapConferencia]),
 	conferencia(MapConferencia).
+	
 
 % % proceso que realiza una conferencia una vez que esta linkeada y lista
 conferencia(MapConferencia) ->
@@ -452,6 +504,12 @@ conferencia(MapConferencia) ->
 		{Server, registrar_asistente, Asistente} ->
 			io:format("Conferencia: ~p~n Asistente: ~p~n", [MapConferencia, Asistente]),
 			MapNuevoConferencia = maps:update("asistentes", [Asistente | maps:get("asistentes",MapConferencia)], MapConferencia),
+			io:format("NUEVA Conferencia: ~p~n", [MapNuevoConferencia]),
+			Server ! {registrar_asistente, asistente_inscrito},
+			conferencia(MapNuevoConferencia);
+		{Server, desinscribir_asistente, Asistente} ->
+			io:format("Conferencia: ~p~n Asistente: ~p~n", [MapConferencia, Asistente]),
+			MapNuevoConferencia = maps:update("asistentes", server_eliminaAsistente(Asistente, maps:get("asistentes",MapConferencia), []), MapConferencia),
 			io:format("NUEVA Conferencia: ~p~n", [MapNuevoConferencia]),
 			Server ! {registrar_asistente, asistente_inscrito},
 			conferencia(MapNuevoConferencia);
