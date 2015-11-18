@@ -7,7 +7,7 @@
 % --------------------------------------------------------------- Meta
 -module(tarea6).
 -export([inicia_servidor/0, servidor/0, registra_conferencia/5, conferencia/6, conferencias_inscritas/1, asistentes_inscritos/1, desinscribe_conferencia/2,
-	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2, elimina_asistente/1]).
+	registra_asistente/2, asistente/3, lista_asistentes/0, lista_conferencias/0, inscribe_conferencia/2, elimina_asistente/1, elimina_conferencia/1]).
 
 %% cambia la funcion acontinuacion para que refleje el nombre del
 %% nodo servidor (para ver tu nombre corre en UNIX con el comando
@@ -15,7 +15,7 @@
 %% usar. Acontinuacion, el nombre estara antes del numero de linea
 %% a ejecutar.
 nodo_servidor() ->
-  servidor@localhost.
+  servidor@G55.
 
 %% el proceso que corre de administracion
 %% las listas tienen el formato de:
@@ -41,6 +41,11 @@ servidor(L_Asistentes, L_Conferencias) ->
 		io:format("nueva conf ~p ~n", [{From, Conferencia}]),
  		Nueva_Conferencias = server_nuevaConferencia(From, Conferencia, L_Conferencias),
  		servidor(L_Asistentes, Nueva_Conferencias);
+
+ 	{From, elimminar_c, Conferencia} ->
+		Nueva_Conferencias = server_deleteConferencia(From, Conferencia, L_Conferencias),
+		io:format("Lista de conferencias: ~p~n", [Nueva_Conferencias]),
+		servidor(L_Asistentes, Nueva_Conferencias);
 
  	{From, registra_a, Asistente, Nombre} -> % agregar un nuevo asistente
  		io:format("estoy aqui ~n", []),
@@ -83,9 +88,10 @@ servidor(L_Asistentes, L_Conferencias) ->
 				servidor(Nueva_Asistentes, L_Conferencias)				
 		end;
 
- 	%{From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
- 	% 	Resultado = server_conferenciasDe(From, Asistente, L_Asistentes),
- 	% 	io:format("las conferencias son: ~p~n", [Resultado])
+ 	{From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
+ 		Lista = server_conferenciasDe(From, Asistente, L_Asistentes),
+ 		server_mapasConferencias(From, Lista, L_Conferencias),
+ 		servidor(L_Asistentes, L_Conferencias);
 
 	{From, asistentes_en, Conferencia} -> % imprimir las conferencias de Asistente
 	 	Resultado = server_asistentesEn(From, Conferencia, L_Asistentes, L_Conferencias),
@@ -120,6 +126,21 @@ servidor(L_Asistentes, L_Conferencias) ->
 		end			
 
   end.
+
+%le manda un mensaje de logoff al proceso de Conferencia, 
+% tambien actualiza la lista del server
+server_deleteConferencia(From, Conferencia, L_Conferencias) ->
+	case lists:keytake(Conferencia, 2, L_Conferencias) of
+
+		{value, {Pid, _}, Nueva_Conferencias} ->
+			%ejecutar desincribe_conferencia() con un map de asistentes_inscritos(conferencia)
+			Pid ! logoff,
+			Nueva_Conferencias;
+
+		false ->
+			false
+
+	end.
 
 %Busca el atomo de un asistente en la lista de asistentes
 server_buscarAsistente(_, []) ->
@@ -329,18 +350,55 @@ server_inexistenteAsistenteConferencia(From, ExisteAsistente, ExisteConferencia)
 		end.
 
 
+server_conferenciasDe(_, _, []) ->
+	false;
+
 % se imprime la lista de conferencias de un asistente
-%server_conferenciasDe(_, _, []) ->
-%	io:format("server_conferenciasDe no debio de haber llegado a una lista vacia", []),
-%	[];
-%server_conferenciasDe(From, Asistente, L_Asistentes) ->
-%	foreach 
-%	 case maps:find(From, 1, L_Asistentes) of
-%		error ->
-%	 		From ! {tarea6, stop, asistente_no_registrado};
-%	 	{value, {_, Name}} ->
-%			server_transfer(From, Name, To, Message, User_List)
-%	 end.
+server_conferenciasDe(From, Asistente, L_Asistentes) ->
+	[MapAsistente | Rest] = L_Asistentes,
+	case maps:get("clave",MapAsistente) == Asistente of
+		true ->
+			server_listaConferenciasDe(From, MapAsistente);
+		false ->
+			server_conferenciasDe(From, Asistente, Rest)
+	end.
+
+% regresa los PIDS de una lista de conferencias
+server_getConferenciaProc([], _, Resultado) ->
+	Resultado;
+
+% regresa los PIDS de una lista de conferencias
+server_getConferenciaProc(Listado, L_Conferencias, Resultado) ->
+	[X | XS] = Listado,
+	case lists:keyfind(X, 2, L_Conferencias) of
+		{Proc, _} ->
+			server_getConferenciaProc(XS, L_Conferencias, [Proc | Resultado]);
+		false ->
+			false
+	end.
+% regresa una lista con clave, titulo, conferencista, horario y cupo de conferencias
+server_formatMaps([], LosMapas)->
+	LosMapas;
+
+server_formatMaps(Ans, LosMapas)->
+	[X | XS] = Ans,
+	X ! {self(), dar_mapa},
+	receive
+		{el_mapa, Mapa} ->
+			server_formatMaps(XS, [#{"conferencia" => maps:get("conferencia", Mapa), "titulo" => maps:get("titulo", Mapa),
+			"asistentes" => maps:get("asistentes", Mapa), "horario" => maps:get("horario", Mapa),
+			"cupo" => maps:get("cupo", Mapa) } | LosMapas])
+	end.
+
+server_mapasConferencias(From, 	Listado, L_Conferencias) ->
+	Ans = server_getConferenciaProc(Listado, L_Conferencias, []), % se obtiene lista de PIDS
+	Mapas = server_formatMaps(Ans, []),
+	From ! {servidor, sus_conferencias, Mapas}.
+
+% funcion que regresa una lista con los atomos de las conferencias a las que esta inscrito asistente
+server_listaConferenciasDe(_, Mapa) ->
+	Listado = maps:get("conferencias", Mapa),
+	Listado.
 
 % Recorre la lista de mapas para ver si existe un asistente repetido. False = no se repite.
 server_checaExistenciaAsistente(_, []) ->
@@ -456,6 +514,9 @@ conferencias_inscritas(Asistente) ->
 		_ -> 
 			{servidor, nodo_servidor()} ! {self(), conferencias_de, Asistente},
 			receive
+				{servidor, sus_conferencias, Listado} ->
+					io:format("Mis conferencias: ~p~n", [Listado]);
+
 				{conferencias_de, What} -> % Normal response
 					io:format("~p~n", [What])
 			after 5000 ->
@@ -495,8 +556,6 @@ conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 	io:format("Conferencia: ~p~n", [MapConferencia]),
 	conferencia(MapConferencia).
 
-%elimina_conferencia(Conferencia)
-%	Eliminar todas las inscripciones, borrarla de la info de los asistentes
 server_eliminaAsistenteDeLista(_, [], Acum) ->
 	io:format("Lista actual: ~p~n", [Acum]),
 	Acum;
@@ -540,8 +599,16 @@ conferencia(MapConferencia) ->
 	end.
 	
 
-%elimina_conferencia(Conferencia)
 %	Eliminar todas las inscripciones, borrarla de la info de los asistentes
+elimina_conferencia(Conferencia) ->
+	case whereis(Conferencia) of
+		undefined -> 
+			error_conferencia_no_registrada;
+		_ -> 
+			{servidor, nodo_servidor()} ! {self(), elimminar_c, Conferencia}
+	end.
+
+
 server_eliminaAsistente(_, [], Acum) ->
 	io:format("Lista actual: ~p~n", [Acum]),
 	Acum;
