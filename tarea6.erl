@@ -78,8 +78,9 @@ servidor(L_Asistentes, L_Conferencias) ->
 				servidor(L_Asistentes, L_Conferencias);
 			true ->
 				Nueva_Asistentes = server_desinscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistentes),
-				server_desinscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias)
-				
+				server_desinscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias),
+				From ! {servidor, asistente_eliminado},
+				servidor(Nueva_Asistentes, L_Conferencias)				
 		end;
 
  	%{From, conferencias_de, Asistente} -> % imprimir las conferencias de Asistente
@@ -125,6 +126,7 @@ server_buscarAsistente(_, []) ->
 	[];
 server_buscarAsistente(Asistente, L_Asistentes) ->
 	[MapAsistente | Rest] = L_Asistentes,
+	%io:format("~p == ~p ~n", [MapAsistente, Asistente]),
 	case maps:get("clave",MapAsistente) == Asistente of
 		true ->
 			maps:remove("conferencias", MapAsistente);
@@ -136,12 +138,12 @@ server_buscarAsistente(Asistente, L_Asistentes) ->
 server_obtenerAsistentes([], _) ->
 	[];
 server_obtenerAsistentes(Asistentes, L_Asistentes) ->
-	io:format("Asistentes en conferencia ~p~n", [Asistentes]),
+	%io:format("Asistentes en conferencia ~p~n", [Asistentes]),
 	case Asistentes of
 		[Asistente, Rest] ->
 			[server_buscarAsistente(Asistente, L_Asistentes) | server_obtenerAsistentes(Rest, L_Asistentes)];
-		Asistente->
-			server_buscarAsistente(Asistente, L_Asistentes)
+		[Asistente]->
+			[server_buscarAsistente(Asistente, L_Asistentes)]
 	end.
 	
 
@@ -208,8 +210,8 @@ server_desinscribirConferenciaAsistente(Asistente, Conferencia, L_Conferencias) 
 		{value, {PiDConf, Conferencia}} ->
 			PiDConf ! {self(), desinscribir_asistente, Asistente},
 			receive
-				{registrar_asistente, What} -> % Normal response
-						io:format("Se inscribio asistente ~p~n", [What])
+				{desinscribir_asistente, What} -> % Normal response
+						io:format("Se desinscribio asistente ~p~n", [What])
 				after 5000 ->
 					io:format("No response from conferencia~n", [])
 			end
@@ -264,12 +266,12 @@ server_desinscribirAsistenteConferencia(From, Asistente, Conferencia, L_Asistent
 	%io:format("~p == ~p ~n", [MapAsistente, Asistente]),
 	case maps:get("clave",MapAsistente) == Asistente of
 		true ->
-			io:format("~p + ~p = ~p~n", [maps:get("conferencias",MapAsistente), Conferencia,
-				[Conferencia | maps:get("conferencias",MapAsistente)]]),
-			MapNuevoAsistente = maps:update("conferencias", [Conferencia | maps:get("conferencias",MapAsistente)], MapAsistente),
+			io:format("~p - ~p = ~p~n", [maps:get("conferencias",MapAsistente), Conferencia,
+				lists:delete(Conferencia ,maps:get("conferencias",MapAsistente))]),
+			MapNuevoAsistente = maps:update("conferencias", lists:delete(Conferencia ,maps:get("conferencias",MapAsistente)), MapAsistente),
 			[MapNuevoAsistente | Rest];
 		false -> 
-			[MapAsistente | server_inscribirAsistenteConferencia(From, Asistente, Conferencia, Rest)]
+			[MapAsistente | server_desinscribirAsistenteConferencia(From, Asistente, Conferencia, Rest)]
 		end. 
 
 
@@ -492,7 +494,20 @@ conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
 	await_result(),
 	io:format("Conferencia: ~p~n", [MapConferencia]),
 	conferencia(MapConferencia).
-	
+
+%elimina_conferencia(Conferencia)
+%	Eliminar todas las inscripciones, borrarla de la info de los asistentes
+server_eliminaAsistenteDeLista(_, [], Acum) ->
+	io:format("Lista actual: ~p~n", [Acum]),
+	Acum;
+server_eliminaAsistenteDeLista(Asistente, [MapAsistente | Rest], Acum) ->
+	io:format("~p == ~p ~n", [MapAsistente, Asistente]),
+    	case MapAsistente == Asistente of
+        	true ->
+      		      	server_eliminaAsistenteDeLista(Asistente, Rest, Acum);
+        	false -> 
+            		server_eliminaAsistenteDeLista(Asistente, Rest, lists:append(Acum, [MapAsistente]))
+    	end. 
 
 % % proceso que realiza una conferencia una vez que esta linkeada y lista
 conferencia(MapConferencia) ->
@@ -509,9 +524,9 @@ conferencia(MapConferencia) ->
 			conferencia(MapNuevoConferencia);
 		{Server, desinscribir_asistente, Asistente} ->
 			io:format("Conferencia: ~p~n Asistente: ~p~n", [MapConferencia, Asistente]),
-			MapNuevoConferencia = maps:update("asistentes", server_eliminaAsistente(Asistente, maps:get("asistentes",MapConferencia), []), MapConferencia),
+			MapNuevoConferencia = maps:update("asistentes", server_eliminaAsistenteDeLista(Asistente, maps:get("asistentes",MapConferencia), []), MapConferencia),
 			io:format("NUEVA Conferencia: ~p~n", [MapNuevoConferencia]),
-			Server ! {registrar_asistente, asistente_inscrito},
+			Server ! {desinscribir_asistente, asistente_desinscrito},
 			conferencia(MapNuevoConferencia);
 		{Server, asistentes_en} ->
 			Server ! {asistentes_en, maps:get("asistentes",MapConferencia)},
