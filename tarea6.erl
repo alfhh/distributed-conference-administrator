@@ -43,12 +43,11 @@ servidor(L_Asistentes, L_Conferencias) ->
  		servidor(L_Asistentes, Nueva_Conferencias);
 
  	{From, elimminar_c, Conferencia} ->
-		Nueva_Conferencias = server_deleteConferencia(From, Conferencia, L_Conferencias),
+		Nueva_Conferencias = server_deleteConferencia(Conferencia, L_Conferencias),
 		io:format("Lista de conferencias: ~p~n", [Nueva_Conferencias]),
 		servidor(L_Asistentes, Nueva_Conferencias);
 
  	{From, registra_a, Asistente, Nombre} -> % agregar un nuevo asistente
- 		io:format("estoy aqui ~n", []),
  		Nueva_Asistentes = server_nuevoAsistente(From, Asistente, Nombre, L_Asistentes),
  		servidor(Nueva_Asistentes, L_Conferencias);
 
@@ -127,11 +126,11 @@ servidor(L_Asistentes, L_Conferencias) ->
 
   end.
 
+
 %le manda un mensaje de logoff al proceso de Conferencia, 
 % tambien actualiza la lista del server
-server_deleteConferencia(From, Conferencia, L_Conferencias) ->
+server_deleteConferencia(Conferencia, L_Conferencias) ->
 	case lists:keytake(Conferencia, 2, L_Conferencias) of
-
 		{value, {Pid, _}, Nueva_Conferencias} ->
 			%ejecutar desincribe_conferencia() con un map de asistentes_inscritos(conferencia)
 			Pid ! logoff,
