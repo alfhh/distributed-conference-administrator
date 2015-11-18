@@ -571,6 +571,9 @@ server_eliminaAsistenteDeLista(Asistente, [MapAsistente | Rest], Acum) ->
 % % proceso que realiza una conferencia una vez que esta linkeada y lista
 conferencia(MapConferencia) ->
 	receive
+		{Server, dar_mapa} ->
+			Server ! {el_mapa, MapConferencia},
+			conferencia(MapConferencia);
 		{Server, checar_cupo} ->
 			io:format("Conferencia: ~p ~p ~n", [length(maps:get("asistentes",MapConferencia)), maps:get("cupo",MapConferencia)]),
 			Server ! {checar_cupo, length(maps:get("asistentes",MapConferencia)) < maps:get("cupo",MapConferencia)},
